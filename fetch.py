@@ -2,6 +2,7 @@ import io
 import os
 import sys
 import zipfile
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
@@ -46,12 +47,21 @@ def fetch_events(issue_id):
 
     project_slug = get_project_slug(issue_id)
 
+    filename = '{}-{}.zip'.format(project_slug, issue_id)
     zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as new_zip_file:
+
+        old_events = {}
+        if Path(filename).is_file():
+            with zipfile.ZipFile(filename, 'r') as zip_file:
+                for f in tqdm(zip_file.filelist):
+                    old_events[f.filename[:-5]] = zip_file.read(f)
+
         for event in tqdm(events):
-            zip_file.writestr(
-                '{}.json'.format(event['eventID']),
-                io.BytesIO(requests.get(
+            if event['eventID'] in old_events:
+                event_details = old_events[event['eventID']]
+            else:
+                event_details = requests.get(
                     EVENT_URL.format(
                         ORGANIZATION_SLUG,
                         project_slug,
@@ -60,10 +70,14 @@ def fetch_events(issue_id):
                     headers={
                         'Authorization': f'Bearer {API_TOKEN}'
                     },
-                ).content).getvalue(),
+                ).content
+
+            new_zip_file.writestr(
+                '{}.json'.format(event['eventID']),
+                io.BytesIO(event_details).getvalue(),
             )
 
-    with open('{}-{}.zip'.format(project_slug, issue_id), 'wb') as f:
+    with open(filename, 'wb') as f:
         f.write(zip_buffer.getvalue())
 
 
